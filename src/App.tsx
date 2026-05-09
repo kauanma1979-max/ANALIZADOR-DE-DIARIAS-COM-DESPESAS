@@ -74,18 +74,39 @@ export default function App() {
   const syncExpenses = async () => {
     setIsSyncingExpenses(true);
     try {
-      const SHEET_URL = '/api/sync-expenses';
-      const response = await fetch(SHEET_URL);
+      const PROXY_URL = '/api/sync-expenses';
+      const DIRECT_URL = 'https://docs.google.com/spreadsheets/d/1lyXkSmeiyyODZbng6GtXTSwNR-XY2KWRLKWqppLef1k/export?format=csv&gid=980751451';
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Server sync error:', errorData);
-        throw new Error(errorData.error || 'Falha na resposta do servidor');
+      let csvText = '';
+      let response;
+
+      // Try proxy first
+      try {
+        response = await fetch(PROXY_URL);
+        if (response.ok) {
+          csvText = await response.text();
+        } else if (response.status === 404) {
+          console.warn('Proxy returned 404, trying direct fetch...');
+        } else {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error || `Erro ${response.status}`);
+        }
+      } catch (proxyErr) {
+        console.error('Proxy failed:', proxyErr);
+      }
+
+      // Fallback to direct fetch if proxy failed or returned 404
+      if (!csvText) {
+        console.log('Attempting direct fetch...');
+        response = await fetch(DIRECT_URL);
+        if (!response.ok) throw new Error('Não foi possível carregar os dados da planilha (Proxy e Direto falharam)');
+        csvText = await response.text();
       }
       
-      const csvText = await response.text();
-      
-      // Tenta detectar se o delimitador é vírgula ou ponto e vírgula
+      if (!csvText || csvText.length < 50) {
+        throw new Error('Os dados recebidos da planilha parecem estar vazios ou inválidos.');
+      }
+
       const workbook = XLSX.read(csvText, { type: 'string' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       
