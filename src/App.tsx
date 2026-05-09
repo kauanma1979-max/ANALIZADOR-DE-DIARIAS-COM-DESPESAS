@@ -131,30 +131,7 @@ export default function App() {
 
       const mappedExpenses: Expense[] = rawData.map((normalizedRow, idx) => {
         let dateVal = normalizedRow['DATA'] || normalizedRow['DATE'] || '';
-        let formattedDate = '';
-
-        if (dateVal) {
-          if (typeof dateVal === 'number') {
-            // Data serial do Excel (dias desde 1899-12-30)
-            const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
-            formattedDate = jsDate.toISOString().split('T')[0];
-          } else {
-            const dateStr = String(dateVal).trim();
-            // Suporta DD/MM/YYYY ou DD/MM/YY
-            const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(dateStr);
-            if (ddmmyyyy) {
-              let [_, d, m, y] = ddmmyyyy;
-              if (y.length === 2) y = '20' + y;
-              formattedDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-            } else {
-              // Fallback para YYYY-MM-DD ou outros formatos reconhecidos
-              const d = new Date(dateStr);
-              if (!isNaN(d.getTime())) {
-                formattedDate = d.toISOString().split('T')[0];
-              }
-            }
-          }
-        }
+        let formattedDate = toISODate(dateVal);
 
         const rawValor = normalizedRow['VALOR'] || '0';
         let numericValue = 0;
@@ -276,10 +253,10 @@ export default function App() {
             ano,
             origem: row['Origem'] || '',
             destino: row['Destino'] || '',
-            saidaOrigem: so.data ? `${so.data} ${so.hora}` : '',
-            chegadaOrigem: co.data ? `${co.data} ${co.hora}` : '',
-            saidaDestino: sd.data ? `${sd.data} ${sd.hora}` : '',
-            chegadaDestino: cd.data ? `${cd.data} ${cd.hora}` : '',
+            saidaOrigem: so.data ? `${toISODate(so.data)} ${so.hora}` : '',
+            chegadaOrigem: co.data ? `${toISODate(co.data)} ${co.hora}` : '',
+            saidaDestino: sd.data ? `${toISODate(sd.data)} ${sd.hora}` : '',
+            chegadaDestino: cd.data ? `${toISODate(cd.data)} ${cd.hora}` : '',
             motivo: row['Motivo'] || '',
             status: status,
             totalPago: parseFloat(row['Total Pago'] || 0) || 0
@@ -321,10 +298,48 @@ export default function App() {
 
   const formatDateSafe = (dateStr: string) => {
     if (!dateStr) return '';
+    // Handle both YYYY-MM-DD and DD/MM/YYYY
+    if (dateStr.includes('/')) return dateStr;
     const parts = dateStr.split('-');
     if (parts.length !== 3) return dateStr;
     const [year, month, day] = parts;
     return `${day}/${month}/${year}`;
+  };
+
+  const formatDateTimeBR = (dateTimeStr: string) => {
+    if (!dateTimeStr) return '';
+    const parts = dateTimeStr.split(' ');
+    const datePart = parts[0];
+    const timePart = parts[1];
+    
+    const formattedDate = formatDateSafe(datePart);
+    return timePart ? `${formattedDate} ${timePart}` : formattedDate;
+  };
+
+  const toISODate = (val: any): string => {
+    if (!val) return '';
+    if (typeof val === 'number') {
+      const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+    const str = String(val).trim();
+    
+    // Check if already ISO
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+    // DD/MM/YYYY or DD/MM/YY
+    const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(str);
+    if (ddmmyyyy) {
+      let [_, d, m, y] = ddmmyyyy;
+      if (y.length === 2) y = '20' + y;
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    return str;
   };
 
   const getMonthAndYearFromDate = (dateStr: string) => {
@@ -654,12 +669,12 @@ export default function App() {
                         <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-3 py-4 text-xs text-slate-700 font-semibold align-top">{r.destino}</td>
                           <td className="px-3 py-4 text-[11px] text-slate-500 leading-tight align-top">
-                            <div className="font-bold text-slate-600">S: {r.saidaOrigem}</div>
-                            <div className="mt-1">C: {r.chegadaOrigem}</div>
+                            <div className="font-bold text-slate-600">S: {formatDateTimeBR(r.saidaOrigem)}</div>
+                            <div className="mt-1">C: {formatDateTimeBR(r.chegadaOrigem)}</div>
                           </td>
                           <td className="px-3 py-4 text-[11px] text-slate-500 leading-tight align-top">
-                            <div className="font-bold text-slate-600">S: {r.saidaDestino}</div>
-                            <div className="mt-1">C: {r.chegadaDestino}</div>
+                            <div className="font-bold text-slate-600">S: {formatDateTimeBR(r.saidaDestino)}</div>
+                            <div className="mt-1">C: {formatDateTimeBR(r.chegadaDestino)}</div>
                           </td>
                           <td className="px-3 py-4 text-xs text-slate-600 leading-relaxed align-top">
                             <div className="line-clamp-6" title={r.motivo}>
