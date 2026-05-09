@@ -823,12 +823,10 @@ export default function App() {
                           </div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold text-slate-800">{exp.type}</p>
-                              {exp.city && (
-                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full uppercase tracking-tight">
-                                  {exp.city}
-                                </span>
-                              )}
+                              <p className="text-base font-bold text-slate-900">{exp.city || 'Cidade não informada'}</p>
+                              <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full uppercase tracking-tight">
+                                {exp.type}
+                              </span>
                             </div>
                             <p className="text-xs text-slate-400 font-medium my-1">
                               {formatDateSafe(exp.date)} • {exp.description || 'Sem descrição'}
