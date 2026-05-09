@@ -70,6 +70,8 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   // Sync expenses from Google Sheets
   const syncExpenses = async () => {
     setIsSyncingExpenses(true);
@@ -499,83 +501,173 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-2 bg-blue-600 rounded-lg">
+      <header className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
               <FileSpreadsheet className="text-white w-6 h-6" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Análise de Diárias</h2>
-              <p className="text-sm text-slate-500 font-medium">{headerInfo.nome} • {headerInfo.cargo}</p>
+            <div className="hidden sm:block">
+              <h1 className="text-lg font-black text-slate-800 tracking-tight leading-tight">Remix <span className="text-blue-600 italic">Diárias</span></h1>
+              <p className="text-[9px] uppercase tracking-widest font-bold text-slate-400">Analisador de Dados</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-3">
+          <nav className="hidden md:flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+            {[
+              { id: 'dados', icon: TableIcon, label: 'Diárias' },
+              { id: 'despesas', icon: Coins, label: 'Despesas' },
+              { id: 'visualizacao', icon: BarChart3, label: 'Gráficos' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as TabType)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 font-bold text-xs",
+                  activeTab === tab.id 
+                    ? "bg-white text-blue-600 shadow-sm ring-1 ring-slate-200" 
+                    : "text-slate-500 hover:text-slate-800 hover:bg-white/50"
+                )}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
             <button 
               onClick={syncExpenses}
               disabled={isSyncingExpenses}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors font-semibold text-sm border border-blue-100 disabled:opacity-50"
+              className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors font-semibold text-xs border border-blue-100 disabled:opacity-50"
             >
-              <RefreshCw className={cn("w-4 h-4", isSyncingExpenses && "animate-spin")} />
-              Sincronizar Planilha
+              <RefreshCw className={cn("w-3 h-3", isSyncingExpenses && "animate-spin")} />
+              Sincronizar
             </button>
             <button 
               onClick={resetApp}
-              className="px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors font-semibold text-sm"
+              className="hidden sm:block px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors font-semibold text-xs"
             >
-              Novo Arquivo
+              Novo
+            </button>
+            
+            <button 
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              <motion.div animate={{ rotate: isMobileMenuOpen ? 90 : 0 }}>
+                {isMobileMenuOpen ? <Plus className="w-6 h-6 rotate-45" /> : <Layers className="w-6 h-6" />}
+              </motion.div>
             </button>
           </div>
         </div>
+
+        {/* Mobile Navigation */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="md:hidden bg-white border-t border-slate-100 overflow-hidden"
+            >
+              <div className="px-4 py-6 space-y-2">
+                {[
+                  { id: 'dados', icon: TableIcon, label: 'Diárias' },
+                  { id: 'despesas', icon: Coins, label: 'Despesas' },
+                  { id: 'visualizacao', icon: BarChart3, label: 'Gráficos' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id as TabType);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={cn(
+                      "flex items-center gap-3 w-full px-4 py-4 rounded-xl font-bold text-base transition-colors",
+                      activeTab === tab.id 
+                        ? "bg-blue-50 text-blue-600" 
+                        : "text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    <tab.icon className="w-5 h-5" />
+                    {tab.label}
+                  </button>
+                ))}
+                
+                <div className="pt-4 mt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => {
+                      syncExpenses();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="flex items-center justify-center gap-2 py-3 bg-blue-50 text-blue-700 rounded-xl font-bold text-sm"
+                  >
+                    <RefreshCw className={cn("w-4 h-4", isSyncingExpenses && "animate-spin")} />
+                    Sinc
+                  </button>
+                  <button 
+                    onClick={() => {
+                      resetApp();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="py-3 bg-slate-900 text-white rounded-xl font-bold text-sm"
+                  >
+                    Novo Arquivo
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 mt-8">
         {/* Filters */}
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
               <Calendar className="w-3 h-3" /> Mês
             </label>
             <select 
               value={mesFilter}
               onChange={(e) => setMesFilter(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm"
+              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-semibold text-slate-700 shadow-sm"
             >
-              <option value="all">Todos os meses</option>
+              <option value="all">Filtro: Todos os meses</option>
               {uniqueMeses.map(m => (
                 <option key={m} value={m}>{MESES_NUMERO[m] || m}</option>
               ))}
             </select>
           </div>
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
               <Calendar className="w-3 h-3" /> Ano
             </label>
             <select 
               value={anoFilter}
               onChange={(e) => setAnoFilter(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm"
+              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-semibold text-slate-700 shadow-sm"
             >
-              <option value="all">Todos os anos</option>
+              <option value="all">Filtro: Todos os anos</option>
               {uniqueAnos.map(a => (
                 <option key={a} value={a}>{a}</option>
               ))}
             </select>
           </div>
-          <div className="flex flex-col gap-2 md:col-span-2">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
               <Search className="w-3 h-3" /> Buscar
             </label>
             <div className="relative">
               <input 
                 type="text" 
-                placeholder="Origem, destino, motivo..."
+                placeholder="Pesquisar por destino, motivo..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm"
+                className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-semibold text-slate-700 shadow-sm"
               />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             </div>
           </div>
         </section>
@@ -615,28 +707,27 @@ export default function App() {
           ))}
         </section>
 
-        {/* Tabs */}
-        <section className="border-b border-slate-200 mb-8 overflow-x-auto flex flex-nowrap">
+        {/* Tabs - Now more subtle navigation */}
+        <section className="flex gap-1 overflow-x-auto pb-4 scrollbar-hide no-scrollbar -mx-2 px-2 mb-6">
           {[
-            { id: 'dados', label: 'Dados', icon: TableIcon },
+            { id: 'dados', label: 'Diárias', icon: TableIcon },
             { id: 'despesas', label: 'Despesas', icon: Coins },
-            { id: 'analise', label: 'Análise Mensal', icon: BarChart3 },
-            { id: 'anual', label: 'Análise Anual', icon: Layers },
+            { id: 'analise', label: 'Análise', icon: BarChart3 },
+            { id: 'anual', label: 'Anual', icon: Layers },
             { id: 'status', label: 'Status', icon: PieChart },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as TabType)}
               className={cn(
-                "px-6 py-4 flex items-center gap-2 font-semibold text-sm transition-all relative",
-                activeTab === tab.id ? "text-blue-600" : "text-slate-400 hover:text-slate-600"
+                "flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-xs transition-all whitespace-nowrap shrink-0 border shadow-xs",
+                activeTab === tab.id 
+                  ? "bg-slate-900 text-white border-slate-900" 
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
               )}
             >
-              <tab.icon className="w-4 h-4" />
+              <tab.icon className="w-3.5 h-3.5" />
               {tab.label}
-              {activeTab === tab.id && (
-                <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
-              )}
             </button>
           ))}
         </section>
@@ -652,45 +743,45 @@ export default function App() {
           >
             {activeTab === 'dados' && (
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="w-full overflow-x-hidden">
-                  <table className="w-full text-left border-collapse table-fixed">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[800px]">
                     <thead>
                       <tr className="bg-slate-50/50 border-b border-slate-100">
-                        <th className="px-3 py-4 text-xs font-bold text-slate-500 uppercase w-[15%]">Destino</th>
-                        <th className="px-3 py-4 text-xs font-bold text-slate-500 uppercase w-[13%]">Saída/Chegada Or.</th>
-                        <th className="px-3 py-4 text-xs font-bold text-slate-500 uppercase w-[13%]">Saída/Chegada Dest.</th>
-                        <th className="px-3 py-4 text-xs font-bold text-slate-500 uppercase w-[35%]">Motivo</th>
-                        <th className="px-3 py-4 text-xs font-bold text-slate-500 uppercase w-[12%]">Status</th>
-                        <th className="px-3 py-4 text-xs font-bold text-slate-500 uppercase text-right w-[12%]">Valor</th>
+                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[15%]">Destino</th>
+                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[18%]">Saída/Chegada Or.</th>
+                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[18%]">Saída/Chegada Dest.</th>
+                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[27%]">Motivo</th>
+                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[10%]">Status</th>
+                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[12%]">Valor</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {filteredData.map((r, i) => (
                         <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-3 py-4 text-xs text-slate-700 font-semibold align-top">{r.destino}</td>
-                          <td className="px-3 py-4 text-[11px] text-slate-500 leading-tight align-top">
+                          <td className="px-4 py-5 text-sm text-slate-700 font-bold align-top">{r.destino}</td>
+                          <td className="px-4 py-5 text-[11px] text-slate-500 leading-tight align-top">
                             <div className="font-bold text-slate-600">S: {formatDateTimeBR(r.saidaOrigem)}</div>
                             <div className="mt-1">C: {formatDateTimeBR(r.chegadaOrigem)}</div>
                           </td>
-                          <td className="px-3 py-4 text-[11px] text-slate-500 leading-tight align-top">
+                          <td className="px-4 py-5 text-[11px] text-slate-500 leading-tight align-top">
                             <div className="font-bold text-slate-600">S: {formatDateTimeBR(r.saidaDestino)}</div>
                             <div className="mt-1">C: {formatDateTimeBR(r.chegadaDestino)}</div>
                           </td>
-                          <td className="px-3 py-4 text-xs text-slate-600 leading-relaxed align-top">
-                            <div className="line-clamp-6" title={r.motivo}>
+                          <td className="px-4 py-5 text-xs text-slate-600 leading-relaxed align-top">
+                            <div className="line-clamp-4" title={r.motivo}>
                               {r.motivo}
                             </div>
                           </td>
-                          <td className="px-3 py-4 align-top">
+                          <td className="px-4 py-5 align-top">
                             <span className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tighter block text-center",
-                              r.status === 'Concluído' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-slate-100 text-slate-600 border border-slate-200"
+                              "px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter block text-center border shadow-xs",
+                              r.status === 'Concluído' ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-50 text-slate-500 border-slate-100"
                             )}>
                               {r.status}
                             </span>
                           </td>
-                          <td className="px-3 py-4 text-sm font-bold text-slate-900 text-right align-top">
-                            <div className="whitespace-nowrap">{formatCurrency(r.totalPago)}</div>
+                          <td className="px-4 py-5 text-sm font-black text-slate-900 text-right align-top">
+                            {formatCurrency(r.totalPago)}
                           </td>
                         </tr>
                       ))}
