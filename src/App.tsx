@@ -109,11 +109,11 @@ export default function App() {
         throw new Error('Os dados recebidos da planilha parecem estar vazios ou inválidos.');
       }
 
-      const workbook = XLSX.read(csvText, { type: 'string' });
+      const workbook = XLSX.read(csvText, { type: 'string', raw: true });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       
-      // Busca a linha de cabeçalho de forma robusta para pular linhas vazias no topo
-      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+      // Use raw: true to get the strings directly from the CSV
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true }) as any[][];
       const headerRowIndex = rawRows.findIndex(row => 
         row.some(cell => cell && String(cell).toUpperCase().includes('DATA'))
       );
@@ -193,25 +193,40 @@ export default function App() {
     }
   }, []);
 
-  const parseDateTime = (dateStr: any) => {
-    if (!dateStr) return { data: '', hora: '' };
+  const parseDateTime = (val: any) => {
+    if (!val) return { data: '', hora: '' };
     
-    // If it's already a JS Date object (sometimes happens with XLSX)
-    if (dateStr instanceof Date) {
-      const year = dateStr.getFullYear();
-      const month = String(dateStr.getMonth() + 1).padStart(2, '0');
-      const day = String(dateStr.getDate()).padStart(2, '0');
-      const data = `${day}/${month}/${year}`;
-      const hora = dateStr.toTimeString().split(' ')[0].substring(0, 5);
-      return { data, hora };
+    // 1. Handle JS Date object
+    if (val instanceof Date) {
+      // Use UTC parts to get the absolute day/time without local timezone shift
+      const d = String(val.getUTCDate()).padStart(2, '0');
+      const m = String(val.getUTCMonth() + 1).padStart(2, '0');
+      const y = val.getUTCFullYear();
+      const h = String(val.getUTCHours()).padStart(2, '0');
+      const min = String(val.getUTCMinutes()).padStart(2, '0');
+      return { data: `${d}/${m}/${y}`, hora: `${h}:${min}` };
     }
 
-    const str = dateStr.toString().trim();
+    // 2. Handle Excel Serial Number (e.g. 46150.8)
+    const num = Number(val);
+    if (!isNaN(num) && num > 30000 && num < 60000) {
+      const ms = Math.round((num - 25569) * 86400 * 1000);
+      const date = new Date(ms);
+      const d = String(date.getUTCDate()).padStart(2, '0');
+      const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const y = date.getUTCFullYear();
+      const h = String(date.getUTCHours()).padStart(2, '0');
+      const min = String(date.getUTCMinutes()).padStart(2, '0');
+      return { data: `${d}/${m}/${y}`, hora: `${h}:${min}` };
+    }
+
+    const str = String(val).trim();
     // Some formats include 'T' or a space between date and time
     const parts = str.split(/[ T]/);
-    const data = parts[0] || '';
-    const hora = parts[1] || '';
-    return { data, hora };
+    const dataPart = parts[0] || '';
+    const horaPart = (parts[1] || '').substring(0, 5);
+    
+    return { data: dataPart, hora: horaPart };
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,48 +349,63 @@ export default function App() {
   const toISODate = (val: any): string => {
     if (!val) return '';
     
-    // Excel Serial Date
-    if (typeof val === 'number') {
-      // Excel serial to JS Date (always interpreted as UTC midnight relative to epoch)
-      const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-      // Use UTC methods to get the absolute day without local timezone shift
-      const year = date.getUTCFullYear();
-      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(date.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+    // 1. Handle JS Date object
+    if (val instanceof Date) {
+      try {
+        const iso = val.toISOString();
+        return iso.split('T')[0];
+      } catch (e) {
+        // Fallback for invalid dates
+        const y = val.getFullYear();
+        const m = String(val.getMonth() + 1).padStart(2, '0');
+        const d = String(val.getDate()).padStart(2, '0');
+        if (isNaN(y)) return '';
+        return `${y}-${m}-${d}`;
+      }
+    }
+
+    // 2. Handle numeric or string serial numbers (Excel)
+    const num = Number(val);
+    if (!isNaN(num) && num > 30000 && num < 60000) {
+      try {
+        const ms = Math.round((Math.floor(num) - 25569) * 86400 * 1000);
+        const date = new Date(ms);
+        return date.toISOString().split('T')[0];
+      } catch (e) {
+        return '';
+      }
     }
 
     const str = String(val).trim();
+    if (!str) return '';
     
-    // Already in ISO format (YYYY-MM-DD)
-    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
-    if (isoMatch) {
-      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-    }
-
-    // Brazilian format (DD/MM/YYYY or DD/MM/YY)
-    const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(str);
-    if (ddmmyyyy) {
-      let [_, d, m, y] = ddmmyyyy;
+    // 3. Direct Regex for Brazilian format (DD/MM/YYYY or DD-MM-YYYY)
+    // We prioritize this because it's a Brazilian app
+    const brMatch = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/.exec(str);
+    if (brMatch) {
+      let [_, d, m, y] = brMatch;
       if (y.length === 2) y = '20' + y;
       return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
     }
 
-    // Fallback for other formats
+    // 4. Direct Regex for ISO format (YYYY-MM-DD...)
+    const isoMatch = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/.exec(str);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    }
+
+    // 5. Fallback for other formats (Last resort)
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      // If the string doesn't include time info, browsers often parse YYYY strings as UTC
-      // causing shifts in local time. We check for time presence.
-      const hasTime = str.includes(':') || str.includes('T') || /\s\d{2}:/.test(str);
-      
-      if (!hasTime) {
-        // No time provided? Use UTC parts to avoid midnight timezone shift
-        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-      } else {
-        // Time provided? Local components are likely more correct for "now" or specific timestamps
+      try {
+        // If it was parsed as local midnight, toISOString might shift it.
+        // If it's a Western timezone, toISOString will be fine or ahead.
+        return d.toISOString().split('T')[0];
+      } catch (e) {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       }
     }
+
     return str;
   };
 
@@ -937,7 +967,7 @@ export default function App() {
                       <p className="text-slate-500">Sincronizando com Google Sheets...</p>
                     </div>
                   ) : filteredExpenses.length > 0 ? (
-                    filteredExpenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((exp) => (
+                    filteredExpenses.sort((a, b) => b.date.localeCompare(a.date)).map((exp) => (
                       <motion.div 
                         layout
                         key={exp.id} 
