@@ -158,7 +158,7 @@ export default function App() {
           link: String(normalizedRow['LINK'] || ''),
           whatsapp: String(normalizedRow['WHATSAPP'] || '')
         };
-      }).filter(exp => exp.date && exp.value > 0); // Remove itens sem data ou valor zero
+      }).filter(exp => exp.date); // Mostra todos que tenham data válida
 
       setExpenses(mappedExpenses);
       setLastSyncTime(new Date().toLocaleTimeString('pt-BR'));
@@ -321,8 +321,9 @@ export default function App() {
   const toISODate = (val: any): string => {
     if (!val) return '';
     if (typeof val === 'number') {
+      // Excel serial date needs to be calculated in UTC to avoid timezone day shifts
       const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     }
     const str = String(val).trim();
     
@@ -339,7 +340,8 @@ export default function App() {
 
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // Fallback using UTC to ensure consistency
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
     }
     return str;
   };
