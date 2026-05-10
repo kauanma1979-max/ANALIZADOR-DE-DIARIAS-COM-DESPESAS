@@ -195,7 +195,20 @@ export default function App() {
 
   const parseDateTime = (dateStr: any) => {
     if (!dateStr) return { data: '', hora: '' };
-    const parts = dateStr.toString().split(' ');
+    
+    // If it's already a JS Date object (sometimes happens with XLSX)
+    if (dateStr instanceof Date) {
+      const year = dateStr.getFullYear();
+      const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+      const day = String(dateStr.getDate()).padStart(2, '0');
+      const data = `${day}/${month}/${year}`;
+      const hora = dateStr.toTimeString().split(' ')[0].substring(0, 5);
+      return { data, hora };
+    }
+
+    const str = dateStr.toString().trim();
+    // Some formats include 'T' or a space between date and time
+    const parts = str.split(/[ T]/);
     const data = parts[0] || '';
     const hora = parts[1] || '';
     return { data, hora };
@@ -320,16 +333,27 @@ export default function App() {
 
   const toISODate = (val: any): string => {
     if (!val) return '';
+    
+    // Excel Serial Date
     if (typeof val === 'number') {
+      // Excel serial to JS Date (always interpreted as UTC midnight relative to epoch)
       const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      // Use UTC methods to get the absolute day without local timezone shift
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
+
     const str = String(val).trim();
     
-    // Check if already ISO
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    // Already in ISO format (YYYY-MM-DD)
+    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    }
 
-    // DD/MM/YYYY or DD/MM/YY
+    // Brazilian format (DD/MM/YYYY or DD/MM/YY)
     const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(str);
     if (ddmmyyyy) {
       let [_, d, m, y] = ddmmyyyy;
@@ -337,9 +361,20 @@ export default function App() {
       return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
     }
 
+    // Fallback for other formats
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // If the string doesn't include time info, browsers often parse YYYY strings as UTC
+      // causing shifts in local time. We check for time presence.
+      const hasTime = str.includes(':') || str.includes('T') || /\s\d{2}:/.test(str);
+      
+      if (!hasTime) {
+        // No time provided? Use UTC parts to avoid midnight timezone shift
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      } else {
+        // Time provided? Local components are likely more correct for "now" or specific timestamps
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
     }
     return str;
   };
