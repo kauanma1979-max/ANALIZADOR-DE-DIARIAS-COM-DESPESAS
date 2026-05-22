@@ -36,7 +36,8 @@ import {
   FolderOpen,
   ExternalLink,
   MessageCircle,
-  Edit2
+  Edit2,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from './lib/utils';
@@ -67,6 +68,13 @@ export default function App() {
   
   const [cityFilterExpenses, setCityFilterExpenses] = useState('all');
   const [showOnlyAccommodation, setShowOnlyAccommodation] = useState(false);
+
+  const [allProjections, setAllProjections] = useState<any[]>([]);
+  const [isAuditorOpen, setIsAuditorOpen] = useState(false);
+  const [auditorSearch, setAuditorSearch] = useState('');
+  const [revealProjections, setRevealProjections] = useState(() => {
+    return localStorage.getItem('diarias_reveal_projections') === 'true';
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -239,7 +247,7 @@ export default function App() {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
@@ -294,6 +302,50 @@ export default function App() {
         }).filter(r => r.ano > 0 && r.totalPago >= 0);
 
         setAllData(processedData);
+
+        // Parse "Auditor Coluna Y" projections
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null }) as any[][];
+        const localProjections: any[] = [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let i = 2; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+
+          const dateVal = row[24]; // Coluna Y
+          const rawValor = row[23]; // Coluna X
+          const statusVal = row[11]; // Coluna L
+          const destVal = row[15]; // Coluna P
+
+          const dateInfo = parseExcelDate(dateVal);
+          const valor = parseMoney(rawValor);
+
+          const isNA = dateInfo.str.toUpperCase().includes('N/A');
+          const isFuture = dateInfo.date && dateInfo.date >= today;
+
+          if (isNA || isFuture) {
+            localProjections.push({
+              id: i,
+              destino: cleanString(destVal),
+              status: String(statusVal || 'PENDENTE'),
+              valor: valor,
+              date: dateInfo.date,
+              dateStr: dateInfo.str
+            });
+          }
+        }
+
+        localProjections.sort((a, b) => {
+          const isANA = a.dateStr === 'N/A';
+          const isBNA = b.dateStr === 'N/A';
+          if (isANA && !isBNA) return 1;
+          if (!isANA && isBNA) return -1;
+          if (!a.date || !b.date) return 0;
+          return a.date.getTime() - b.date.getTime();
+        });
+
+        setAllProjections(localProjections);
         
         // Auto set filter to current date if exists
         const hoje = new Date();
@@ -409,6 +461,63 @@ export default function App() {
     return str;
   };
 
+  const parseMoney = (val: any): number => {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    let s = String(val).trim().replace(/[R$\s]/g, '');
+    const lastComma = s.lastIndexOf(',');
+    const lastDot = s.lastIndexOf('.');
+    if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');
+    else if (lastDot > lastComma) {
+      const parts = s.split('.');
+      if (parts[parts.length - 1].length === 2) s = s.replace(/,/g, '');
+      else s = s.replace(/\./g, '');
+    } else s = s.replace(',', '.');
+    const parsed = parseFloat(s);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const parseExcelDate = (value: any): { date: Date | null; str: string } => {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return { date: null, str: '' };
+    }
+    if (String(value).toUpperCase().includes('N/A')) {
+      return { date: null, str: 'N/A' };
+    }
+
+    let jsDate: Date | null = null;
+    if (value instanceof Date) {
+      jsDate = value;
+    } else if (typeof value === 'number') {
+      jsDate = new Date(Math.round((value - 25569) * 86450 * 1000)); // slightly adjust to round exactly
+      // Let's use standard excel date offset
+      const ms = Math.round((Math.floor(value) - 25569) * 86400 * 1000);
+      jsDate = new Date(ms);
+    } else if (typeof value === 'string') {
+      const parts = value.trim().split(/[-/]/);
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          jsDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        } else if (parts[0].length === 4) {
+          jsDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        }
+      }
+    }
+    
+    if (jsDate && !isNaN(jsDate.getTime())) {
+      jsDate.setHours(0, 0, 0, 0);
+      const day = String(jsDate.getDate()).padStart(2, '0');
+      const month = String(jsDate.getMonth() + 1).padStart(2, '0');
+      return { date: jsDate, str: `${day}/${month}/${jsDate.getFullYear()}` };
+    }
+    return { date: null, str: String(value) };
+  };
+
+  const cleanString = (val: any): string => {
+    if (!val) return '';
+    return String(val).replace(/ANDRE LUIZ DOS SANTOS/gi, '').trim();
+  };
+
   const getMonthAndYearFromDate = (dateStr: string) => {
     const parts = dateStr.split('-');
     if (parts.length !== 3) return { mes: '', ano: 0 };
@@ -452,9 +561,31 @@ export default function App() {
   }, [expenses, mesFilter, anoFilter, cityFilterExpenses, showOnlyAccommodation]);
 
   const totalPago = useMemo(() => filteredData.reduce((sum, r) => sum + r.totalPago, 0), [filteredData]);
+  const totalRecebido = useMemo(() => {
+    return filteredData
+      .filter(r => r.status === 'Concluído')
+      .reduce((sum, r) => sum + r.totalPago, 0);
+  }, [filteredData]);
+  const totalAReceber = useMemo(() => {
+    return filteredData
+      .filter(r => r.status !== 'Concluído')
+      .reduce((sum, r) => sum + r.totalPago, 0);
+  }, [filteredData]);
   const totalDespesas = useMemo(() => filteredExpenses.reduce((sum, exp) => sum + exp.value, 0), [filteredExpenses]);
   const totalPernoites = useMemo(() => filteredData.filter(r => r.totalPago > 200).length, [filteredData]);
   const valorLiquido = totalPago - totalDespesas;
+
+  const filteredProjections = useMemo(() => {
+    return allProjections.filter(r => {
+      const term = auditorSearch.toLowerCase();
+      return (r.destino || '').toLowerCase().includes(term) || 
+             (r.dateStr || '').toLowerCase().includes(term);
+    });
+  }, [allProjections, auditorSearch]);
+
+  const totalProjectionsValue = useMemo(() => {
+    return filteredProjections.reduce((sum, r) => sum + r.valor, 0);
+  }, [filteredProjections]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -462,10 +593,13 @@ export default function App() {
 
   const resetApp = () => {
     setAllData([]);
+    setAllProjections([]);
     setMesFilter('all');
     setAnoFilter('all');
     setSearchFilter('');
     setActiveTab('dados');
+    setRevealProjections(false);
+    localStorage.removeItem('diarias_reveal_projections');
   };
 
   // Chart Data Preparation
@@ -738,7 +872,7 @@ export default function App() {
         </section>
 
         {/* KPI Cards */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-10">
           {[
             { 
               label: 'Total de Diárias', 
@@ -747,29 +881,53 @@ export default function App() {
               color: 'from-blue-600 to-blue-700', 
               icon: TableIcon 
             },
-            { label: 'Total Recebido', value: formatCurrency(totalPago), color: 'from-emerald-500 to-emerald-600', icon: Coins },
+            { label: 'Total Recebido', value: formatCurrency(totalRecebido), color: 'from-emerald-500 to-emerald-600', icon: Coins },
+            { 
+              label: 'Total a Receber', 
+              value: formatCurrency(allProjections.length > 0 ? allProjections.reduce((sum, r) => sum + r.valor, 0) : totalAReceber), 
+              color: 'from-amber-500 to-amber-600', 
+              icon: Clock,
+              onClick: () => {
+                setRevealProjections(true);
+                localStorage.setItem('diarias_reveal_projections', 'true');
+                setIsAuditorOpen(true);
+              }
+            },
             { label: 'Total Despesas', value: formatCurrency(totalDespesas), color: 'from-rose-500 to-rose-600', icon: Trash2 },
             { label: 'Valor Líquido', value: formatCurrency(valorLiquido), color: 'from-violet-600 to-violet-700', icon: BarChart3 },
-          ].map((kpi, i) => (
-            <motion.div 
-              key={i}
-              whileHover={{ y: -4 }}
-              className={cn("p-6 rounded-3xl shadow-sm text-white flex flex-col justify-between h-32 bg-gradient-to-br", kpi.color)}
-            >
-              <div className="flex justify-between items-start">
-                <p className="text-base font-bold text-white tracking-wide">{kpi.label}</p>
-                <kpi.icon className="w-6 h-6 text-white/40" />
-              </div>
-              <div className="flex items-baseline justify-between">
-                <p className="text-3xl font-black tracking-tight">{kpi.value}</p>
-                {('subValue' in kpi) && (
-                  <p className="text-xl font-bold tracking-tight text-black">
-                    {kpi.subValue}
-                  </p>
+          ].map((kpi, i) => {
+            const isReceber = kpi.label === 'Total a Receber';
+            
+            return (
+              <motion.div 
+                key={i}
+                whileHover={kpi.hasOwnProperty('onClick') ? { y: -4, scale: 1.02 } : { y: -4 }}
+                onClick={kpi.hasOwnProperty('onClick') ? (kpi as any).onClick : undefined}
+                className={cn(
+                  "p-6 rounded-3xl shadow-sm text-white flex flex-col justify-between h-32 bg-gradient-to-br", 
+                  kpi.color,
+                  kpi.hasOwnProperty('onClick') && "cursor-pointer select-none active:scale-98 hover:shadow-md transition-all ring-offset-2 hover:ring-2 hover:ring-amber-300"
                 )}
-              </div>
-            </motion.div>
-          ))}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex flex-col">
+                    <p className="text-base font-bold text-white tracking-wide">{kpi.label}</p>
+                  </div>
+                  <kpi.icon className="w-6 h-6 text-white/40" />
+                </div>
+                <div className="flex items-baseline justify-between select-text" onClick={(e) => isReceber && e.stopPropagation()}>
+                  <p className="text-2xl font-black tracking-tight">
+                    {isReceber ? (revealProjections ? kpi.value : "Ver Projeções") : kpi.value}
+                  </p>
+                  {('subValue' in kpi) && (
+                    <p className="text-xl font-bold tracking-tight text-black">
+                      {kpi.subValue}
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
         </section>
 
         {/* Tabs - Now more subtle navigation */}
@@ -1238,6 +1396,179 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* MODAL AUDITOR COLUNA Y */}
+      <AnimatePresence>
+        {isAuditorOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setIsAuditorOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="bg-slate-50 w-full max-w-5xl rounded-[32px] sm:rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* HEADER */}
+              <header className="bg-white border-b border-slate-200 py-5 px-6 sm:px-8 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-emerald-600 p-2.5 rounded-2xl shadow-lg shadow-emerald-100 flex items-center justify-center text-white shrink-0">
+                    <FileSpreadsheet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight uppercase leading-none">Auditor Coluna Y</h1>
+                    <p className="text-[9px] sm:text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Projeções e Destinos</p>
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => setIsAuditorOpen(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2.5 rounded-xl transition-all font-bold text-sm active:scale-95"
+                >
+                  Fechar
+                </button>
+              </header>
+
+              <div className="p-6 sm:p-8 flex-grow overflow-y-auto custom-scrollbar space-y-6">
+                
+                {/* ESTADO VAZIO */}
+                {allProjections.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[24px] sm:rounded-[32px] border-2 border-dashed border-slate-200 p-6">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-6 text-emerald-500">
+                      <Clock className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-500" />
+                    </div>
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-widest text-center">Análise Técnica de Destinos</h2>
+                    <p className="text-slate-500 text-xs sm:text-sm mt-3 text-center max-w-md">
+                      Por favor, carregue a planilha no botão <b>"Novo"</b> do painel principal para processar as projeções da <b>Coluna Y</b>. O sistema converterá automaticamente os números em datas, tratando <b>N/A</b> como pendente e ignorando campos vazios.
+                    </p>
+                    
+                    <div className="mt-8">
+                      <button
+                        onClick={() => {
+                          setIsAuditorOpen(false);
+                          fileInputRef.current?.click();
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-bold transition-all text-xs active:scale-95 shadow-lg shadow-emerald-100"
+                      >
+                        Carregar Planilha Principal
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    
+                    {/* DASHBOARD DE PROJEÇÃO */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <div className="bg-white p-6 sm:p-8 rounded-[24px] sm:rounded-[32px] shadow-sm border border-slate-100 flex flex-col justify-center items-center text-center">
+                        <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2 sm:mb-4">Projeções Detectadas (Futuro + N/A)</span>
+                        <div className="text-4xl sm:text-5xl font-black text-slate-900 leading-none">
+                          {filteredProjections.length}
+                        </div>
+                        <div className="mt-4 px-3 py-1 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase rounded-full tracking-widest">
+                          Registros Identificados
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-600 p-6 sm:p-8 rounded-[24px] sm:rounded-[32px] shadow-lg shadow-emerald-100 flex flex-col justify-center items-center text-center text-white relative overflow-hidden">
+                        <span className="text-emerald-100 text-[10px] font-black uppercase tracking-[0.2em] mb-2 sm:mb-4 font-semibold">Valor Total Projetado</span>
+                        <div className="text-3xl sm:text-4xl font-black leading-none tabular-nums font-bold">
+                          {formatCurrency(totalProjectionsValue)}
+                        </div>
+                        <div className="mt-4 px-3 py-1 bg-white/20 text-white text-[9px] font-black uppercase rounded-full tracking-widest font-semibold font-bold">
+                          Soma Financeira
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* TABELA DE RESULTADOS */}
+                    <div className="bg-white rounded-[24px] sm:rounded-[32px] shadow-sm border border-slate-100 overflow-hidden">
+                      <div className="p-6 md:p-8 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                          <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Cidades de Destino</h2>
+                          <p className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">Dados filtrados por Data ou Pendência (N/A)</p>
+                        </div>
+                        
+                        <div className="relative group w-full sm:w-72">
+                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                          <input 
+                            type="text" 
+                            value={auditorSearch}
+                            onChange={(e) => setAuditorSearch(e.target.value)}
+                            placeholder="Buscar por cidade..." 
+                            className="bg-slate-50 border border-slate-200 rounded-xl pl-11 pr-4 py-3 placeholder:text-slate-400/80 outline-none text-xs sm:text-sm font-semibold text-slate-700 w-full focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto max-h-[350px] custom-scrollbar">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] border-b border-slate-100">
+                              <th className="px-6 py-4 sm:px-8">Destino e Previsão</th>
+                              <th className="px-6 py-4 sm:px-8 text-right font-black uppercase">Valor Projetado</th>
+                              <th className="px-6 py-4 sm:px-8 text-center font-black uppercase">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50 text-slate-700">
+                            {filteredProjections.map((row, index) => {
+                              const dateDisplay = (row.dateStr && row.dateStr.toUpperCase() !== 'N/A' && row.dateStr !== '') 
+                                ? `Pagamento previsto: ${row.dateStr}` 
+                                : '';
+                              return (
+                                <tr key={index} className="hover:bg-slate-50/50 transition-all font-semibold">
+                                  <td className="px-6 py-4 sm:px-8">
+                                    <div className="flex flex-col">
+                                      <div className="text-sm sm:text-emerald-700 font-black uppercase tracking-tight text-emerald-600 block font-bold">
+                                        {row.destino || 'NÃO INFORMADO'}
+                                      </div>
+                                      {dateDisplay && (
+                                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                                          {dateDisplay}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4 sm:px-8 text-right font-black tabular-nums text-slate-900 text-sm sm:text-base font-bold">
+                                    {formatCurrency(row.valor)}
+                                  </td>
+                                  <td className="px-6 py-4 sm:px-8 text-center">
+                                    <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-full text-[9px] font-black uppercase text-slate-500 tracking-tighter">
+                                      {row.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {filteredProjections.length === 0 && (
+                              <tr>
+                                <td colSpan={3} className="px-6 py-16 text-center text-slate-300 font-black uppercase tracking-widest italic text-xs">
+                                  Nenhuma projeção encontrada
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+
+              </div>
+
+              {/* FOOTER */}
+              <footer className="bg-white border-t border-slate-100 py-6 text-center px-4">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.34em]">Sistema de Auditoria Consolidado • 2026</p>
+              </footer>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
