@@ -13,6 +13,7 @@ export interface DiariaRecord {
   chegadaDestino: string;
   motivo: string;
   status: string;
+  dataPagamento?: string;
   totalPago: number;
 }
 

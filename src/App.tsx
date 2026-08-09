@@ -37,7 +37,8 @@ import {
   ExternalLink,
   MessageCircle,
   Edit2,
-  Clock
+  Clock,
+  Calculator
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from './lib/utils';
@@ -276,10 +277,35 @@ export default function App() {
             ano = parseInt(row['Ano'] || row['Ano.1'] || 0) || 0;
           }
 
+          // Helper to find column values matching patterns
+          const getRowValue = (rowObj: any, patterns: string[]) => {
+            if (!rowObj) return '';
+            const keys = Object.keys(rowObj);
+            for (const pattern of patterns) {
+              const key = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(pattern.toLowerCase().replace(/[^a-z0-9]/g, '')));
+              if (key && rowObj[key] !== undefined && rowObj[key] !== null && String(rowObj[key]).trim() !== '') {
+                return rowObj[key];
+              }
+            }
+            return '';
+          };
+
           // Local normalize status "ConUG" or similar to "Concluído"
-          let status = row['Status'] || 'Concluído';
-          if (status.toString().toUpperCase().startsWith('CON')) {
+          let rawStatus = (row['Status'] || row['STATUS'] || row['status'] || 'Concluído').toString().trim();
+          let status = rawStatus;
+          if (rawStatus.toUpperCase().startsWith('CON')) {
             status = 'Concluído';
+          }
+
+          // Extract Data de Pagamento
+          const rawDataPag = getRowValue(row, ['datadepagamento', 'datapagamento', 'datapgto', 'dtpagamento', 'datadopagamento', 'datapag', 'pagamento']);
+          let dataPagamento = '';
+          if (rawDataPag) {
+            const parsed = parseDateTime(rawDataPag);
+            dataPagamento = parsed.data ? parsed.data : String(rawDataPag).trim();
+            if (['N/A', 'N/D', 'NULL', 'UNDEFINED', '-'].includes(dataPagamento.toUpperCase())) {
+              dataPagamento = '';
+            }
           }
 
           return {
@@ -297,6 +323,7 @@ export default function App() {
             chegadaDestino: cd.data ? `${toISODate(cd.data)} ${cd.hora}` : '',
             motivo: row['Motivo'] || '',
             status: status,
+            dataPagamento: dataPagamento,
             totalPago: parseFloat(row['Total Pago'] || 0) || 0
           };
         }).filter(r => r.ano > 0 && r.totalPago >= 0);
@@ -574,6 +601,31 @@ export default function App() {
   const totalDespesas = useMemo(() => filteredExpenses.reduce((sum, exp) => sum + exp.value, 0), [filteredExpenses]);
   const totalPernoites = useMemo(() => filteredData.filter(r => r.totalPago > 200).length, [filteredData]);
   const valorLiquido = totalPago - totalDespesas;
+  const totalProvisionado = useMemo(() => {
+    return filteredData
+      .filter(r => {
+        if (!r.status) return false;
+        const norm = r.status
+          .toString()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toUpperCase();
+        return norm.includes('ATESTE') || norm.includes('ALIMENTADOR') || norm.includes('SIAFEM');
+      })
+      .reduce((sum, r) => sum + r.totalPago, 0);
+  }, [filteredData]);
+
+  const provisionedItems = useMemo(() => {
+    return filteredData.filter(r => {
+      if (!r.status) return false;
+      const norm = r.status
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+      return norm.includes('ATESTE') || norm.includes('ALIMENTADOR') || norm.includes('SIAFEM');
+    });
+  }, [filteredData]);
 
   const filteredProjections = useMemo(() => {
     return allProjections.filter(r => {
@@ -658,8 +710,8 @@ export default function App() {
               <FileSpreadsheet className="w-16 h-16 text-blue-600" />
             </div>
           </div>
-          <h1 className="text-4xl font-bold text-slate-800 mb-4 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-            Analisador de Diárias
+          <h1 className="text-3xl sm:text-4xl font-black text-slate-800 mb-4 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent uppercase tracking-tight">
+            ANALIZADOR DE DIARIAS COM DESPESAS
           </h1>
           <p className="text-slate-500 mb-10 text-lg">
             Carregue sua planilha Excel para análise completa de diárias e controle de despesas.
@@ -707,8 +759,9 @@ export default function App() {
               <FileSpreadsheet className="text-white w-6 h-6" />
             </div>
             <div className="hidden sm:block">
-              <h1 className="text-lg font-black text-slate-800 tracking-tight leading-tight">Remix <span className="text-blue-600 italic">Diárias</span></h1>
-              <p className="text-[9px] uppercase tracking-widest font-bold text-slate-400">Analisador de Dados</p>
+              <h1 className="text-base font-black text-slate-800 tracking-tight leading-tight uppercase">
+                ANALIZADOR DE DIARIAS <span className="text-blue-600 italic">COM DESPESAS</span>
+              </h1>
             </div>
           </div>
           
@@ -872,7 +925,7 @@ export default function App() {
         </section>
 
         {/* KPI Cards */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-10">
+        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-10">
           {[
             { 
               label: 'Total de Diárias', 
@@ -883,7 +936,7 @@ export default function App() {
             },
             { label: 'Total Recebido', value: formatCurrency(totalRecebido), color: 'from-emerald-500 to-emerald-600', icon: Coins },
             { 
-              label: 'Total a Receber', 
+              label: 'RECEBIMENTOS FUTUROS', 
               value: formatCurrency(allProjections.length > 0 ? allProjections.reduce((sum, r) => sum + r.valor, 0) : totalAReceber), 
               color: 'from-amber-500 to-amber-600', 
               icon: Clock,
@@ -895,8 +948,9 @@ export default function App() {
             },
             { label: 'Total Despesas', value: formatCurrency(totalDespesas), color: 'from-rose-500 to-rose-600', icon: Trash2 },
             { label: 'Valor Líquido', value: formatCurrency(valorLiquido), color: 'from-violet-600 to-violet-700', icon: BarChart3 },
+            { label: 'PROVISIONADO', value: formatCurrency(totalProvisionado), color: 'from-indigo-600 to-indigo-700', icon: Calculator },
           ].map((kpi, i) => {
-            const isReceber = kpi.label === 'Total a Receber';
+            const isReceber = kpi.label === 'RECEBIMENTOS FUTUROS';
             
             return (
               <motion.div 
@@ -929,6 +983,84 @@ export default function App() {
             );
           })}
         </section>
+
+        {/* CARD PREVISÃO DE PAGAMENTO - PROVISIONADO (ATESTE / ALIMENTADOR SIAFEM) */}
+        <AnimatePresence>
+          {provisionedItems.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="mb-10 bg-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-900/50 relative overflow-hidden"
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-3 bg-indigo-600/30 text-indigo-400 rounded-2xl border border-indigo-500/30 flex items-center justify-center shrink-0">
+                    <Calendar className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black uppercase tracking-tight text-white flex items-center gap-2">
+                      PROVISIONADO • Datas de Pagamento
+                    </h3>
+                    <p className="text-xs text-slate-400 font-bold mt-1">
+                      Mapeadas por Ateste de Frequência e Alimentador SIAFEM ({provisionedItems.length} {provisionedItems.length === 1 ? 'diária' : 'diárias'})
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-700/60 w-fit">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 block">Total Provisionado</span>
+                    <span className="text-xl sm:text-2xl font-black text-emerald-400">
+                      {formatCurrency(provisionedItems.reduce((sum, r) => sum + r.totalPago, 0))}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <h4 className="text-xs font-black uppercase tracking-widest text-indigo-300 mb-3 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5" /> Detalhamento de Datas de Pagamento
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                  {provisionedItems.map((item, index) => (
+                    <div 
+                      key={index}
+                      className="bg-slate-800/60 border border-slate-700/60 hover:border-indigo-500/50 rounded-2xl p-4 transition-all flex flex-col justify-between gap-3"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <span className="text-xs font-black text-white truncate uppercase">
+                            {item.nome || item.destino || 'Credor'}
+                          </span>
+                          <span className="text-xs font-black text-emerald-400 shrink-0">
+                            {formatCurrency(item.totalPago)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-1 text-[10px] font-bold text-indigo-300 uppercase mb-1">
+                          <span className="truncate">{item.status}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 font-semibold truncate uppercase">
+                          {item.destino ? `Destino: ${item.destino}` : item.motivo || ''}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-700/50 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                          Data Pagamento:
+                        </span>
+                        <span className="text-xs font-black text-amber-300 bg-amber-500/20 px-2.5 py-1 rounded-xl border border-amber-500/30">
+                          {item.dataPagamento && !['N/A', 'N/D', '-'].includes(item.dataPagamento.trim().toUpperCase()) ? item.dataPagamento : 'Pendente'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Tabs - Now more subtle navigation */}
         <section className="flex gap-1 overflow-x-auto pb-4 scrollbar-hide no-scrollbar -mx-2 px-2 mb-6">
@@ -998,10 +1130,16 @@ export default function App() {
                           <td className="px-4 py-5 align-top">
                             <span className={cn(
                               "px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter block text-center border shadow-xs",
-                              r.status === 'Concluído' ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-50 text-slate-500 border-slate-100"
+                              r.status === 'Concluído' ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                              (r.status.toUpperCase().includes('ATESTE') || r.status.toUpperCase().includes('ALIMENTADOR') || r.status.toUpperCase().includes('SIAFEM')) ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-50 text-slate-500 border-slate-100"
                             )}>
                               {r.status}
                             </span>
+                            {r.dataPagamento && !['N/A', 'N/D', 'NULL', 'UNDEFINED', '-'].includes(r.dataPagamento.trim().toUpperCase()) && (
+                              <span className="text-[9px] font-bold text-amber-600 block text-center mt-1 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                                Pgto: {r.dataPagamento}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-5 text-sm font-black text-slate-900 text-right align-top">
                             {formatCurrency(r.totalPago)}
